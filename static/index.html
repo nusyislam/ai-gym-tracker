@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gym Tracker</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏋️</text></svg>">
+  <style>
+    :root {
+      --bg: #1a1d24;           /* dark charcoal page background, not pure black */
+      --card: #232730;         /* slightly lighter charcoal for cards/sections */
+      --card-hover: #2a2f3a;   /* subtle hover state for interactive elements */
+      --text: #e8eaed;         /* light gray-white primary text */
+      --muted: #9199a8;        /* muted secondary text, still readable on dark bg */
+      --border: #363c48;       /* subtle borders that read on dark backgrounds */
+      --accent-start: #6366f1; /* indigo */
+      --accent-end: #06b6d4;   /* cyan */
+      --accent: #6366f1;       /* solid indigo where a gradient doesn't fit */
+      --accent-hover: #4f46e5;
+      --accent-text: #a5b4fc;  /* light indigo for accent-colored text; plain indigo is too dim on dark */
+      --accent-soft: rgba(99, 102, 241, 0.14); /* tinted background for active nav items and tabs */
+      --red: #f87171;          /* softer red that reads well on dark backgrounds */
+      --green: #4ade80;
+      --gray: #9199a8;
+
+      /* Gradient = progress/success signal (primary actions, PRs, active nav), not decoration */
+      --accent-gradient: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+
+      /* Native form controls, dropdown lists and scrollbars render dark too */
+      color-scheme: dark;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    /* --- App shell: fixed sidebar + main content --- */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 220px;
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      padding: 24px 12px;
+      overflow-y: auto;
+    }
+
+    .logo {
+      margin: 0 0 24px;
+      padding: 0 12px;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .nav {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 12px;
+      border-left: 3px solid transparent;
+      border-radius: 0 6px 6px 0;
+      background: transparent;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .nav-item:hover { background: var(--card-hover); }
+
+    /* border-image paints the gradient on the one visible border (left here, bottom on mobile).
+       Slice 1 takes the gradient's edge row/column, so the strip shows the full indigo-to-cyan run. */
+    .nav-item.active {
+      background: var(--accent-soft);
+      border-left-color: var(--accent-start);
+      border-image: linear-gradient(180deg, var(--accent-start), var(--accent-end)) 1;
+      color: var(--accent-text);
+      font-weight: 700;
+    }
+
+    .main {
+      margin-left: 220px;
+      padding: 32px 40px 64px;
+    }
+
+    /* Removing `hidden` takes a view from display: none back to rendered, which starts
+       its CSS animations fresh, so this replays on every switch without any JS */
+    .view {
+      max-width: 720px;
+      animation: view-fade-in 0.25s ease-out;
+    }
+
+    @keyframes view-fade-in {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* On narrow screens the sidebar becomes a top bar */
+    @media (max-width: 700px) {
+      .sidebar {
+        position: static;
+        width: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 16px;
+      }
+
+      .logo { margin-bottom: 12px; padding: 0; }
+
+      .nav {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .nav-item {
+        width: auto;
+        border-left: none;
+        border-bottom: 3px solid transparent;
+        border-radius: 6px 6px 0 0;
+      }
+
+      .nav-item.active {
+        border-bottom-color: var(--accent-start);
+        border-image: linear-gradient(90deg, var(--accent-start), var(--accent-end)) 1;
+      }
+
+      .main {
+        margin-left: 0;
+        padding: 24px 16px 48px;
+      }
+    }
+
+    section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 1.2rem;
+    }
+
+    h2.greeting {
+      margin-bottom: 24px;
+      font-size: 1.75rem;
+    }
+
+    /* Gradient only on the text, so the emoji after it keeps its normal colors. Sized to
+       the text so the whole indigo-to-cyan run shows across the words. */
+    .greeting-text {
+      width: fit-content;
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .bests-category + .bests-category { margin-top: 24px; }
+
+    .bests-category h3 {
+      margin: 0 0 4px;
+      font-size: 1rem;
+    }
+
+    .bests-category .table-wrap { margin-top: 0; }
+
+    /* --- History: List / Grid tabs --- */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab {
+      padding: 8px 16px;
+      border-bottom: 3px solid transparent;
+      border-radius: 6px 6px 0 0;
+      background: transparent;
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .tab:hover { background: var(--card-hover); }
+
+    .tab.active {
+      background: var(--accent-soft);
+      border-bottom-color: var(--accent-start);
+      border-image: linear-gradient(90deg, var(--accent-start), var(--accent-end)) 1;
+      color: var(--accent-text);
+      font-weight: 700;
+    }
+
+    /* The grid has 12 columns, so let the History view use the full width */
+    #view-history { max-width: none; }
+
+    .history-grid th,
+    .history-grid td { white-space: nowrap; }
+
+    /* Long exercise names wrap at word boundaries. Browsers largely ignore max-width on
+       table cells, so width sets the column's target size alongside it. */
+    .history-grid .exercise-name-cell {
+      width: 160px;
+      max-width: 160px;
+      white-space: normal;
+    }
+
+    .history-grid .category-cell {
+      background: var(--bg);
+      font-weight: 700;
+      vertical-align: top;
+    }
+
+    .history-grid .empty-cell {
+      color: var(--muted);
+      text-align: center;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+
+    .field { margin-bottom: 14px; }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 9px 11px;
+      font: inherit;
+      color: var(--text);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+
+    input::placeholder { color: var(--muted); }
+
+    option {
+      background: var(--card);
+      color: var(--text);
+    }
+
+    input[type="checkbox"],
+    input[type="radio"] { accent-color: var(--accent-start); }
+
+    fieldset {
+      border: none;
+      margin: 0;
+      padding: 0;
+      min-width: 0;
+    }
+
+    fieldset .message { margin: 0 0 14px; }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    select:focus {
+      outline: 2px solid var(--accent-start);
+      outline-offset: -1px;
+      border-color: transparent;
+    }
+
+    .checkboxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .checkboxes label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: normal;
+      margin: 0;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 600;
+      padding: 9px 18px;
+      border: none;
+      border-radius: 6px;
+      background: var(--accent-gradient);
+      color: #fff;
+      /* keeps white text legible over the lighter cyan end of the gradient */
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+    }
+
+    button:hover { box-shadow: 0 0 16px rgba(99, 102, 241, 0.4); }
+    button:disabled { opacity: 0.6; cursor: default; }
+    button:disabled:hover { box-shadow: none; }
+
+    /* Nav items and tabs are buttons too, but they're navigation, not primary actions */
+    .nav-item,
+    .tab { text-shadow: none; }
+
+    .nav-item:hover,
+    .tab:hover { box-shadow: none; }
+
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .row input { flex: 1; }
+
+    .message {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+
+    .message.success { background: #16302a; color: #86efac; }
+    .message.error { background: #3b1f24; color: #fca5a5; }
+    .message.info { background: #1f2640; color: #a5b4fc; }
+
+    .message.pr,
+    .message.rep-pr {
+      font-weight: 700;
+      font-size: 1.05rem;
+      padding: 14px 16px;
+    }
+
+    /* New max: the full accent gradient, with a glow; the app's headline progress moment */
+    .message.pr {
+      background: var(--accent-gradient);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.35);
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+      /* pop in, then pulse the glow twice before settling on the static glow above */
+      animation: pr-pop 0.4s ease-out, pr-glow 1.6s ease-in-out 0.4s 2;
+    }
+
+    /* Rep PR: same gradient family, translucent and leaning cyan, the lesser celebration */
+    .message.rep-pr {
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.25), rgba(6, 182, 212, 0.45));
+      color: #cffafe;
+      border: 1px solid rgba(6, 182, 212, 0.5);
+      animation: pr-pop 0.4s ease-out;
+    }
+
+    /* Motion is reserved for PR moments, like the gradient */
+    @keyframes pr-pop {
+      0% { transform: scale(0.95); opacity: 0; }
+      60% { transform: scale(1.02); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes pr-glow {
+      0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.35); }
+      50% { box-shadow: 0 0 32px rgba(99, 102, 241, 0.55); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .message.pr,
+      .message.rep-pr { animation: none; }
+      .view { animation: none; }
+    }
+
+    .result { margin-top: 20px; }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      /* dark text: white doesn't have enough contrast on the softer red/green/gray */
+      color: var(--bg);
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.02em;
+    }
+
+    .badge.red { background: var(--red); }
+    .badge.green { background: var(--green); }
+    .badge.gray { background: var(--gray); }
+
+    .recommendation {
+      margin: 12px 0 6px;
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      font-size: 0.85rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">🏋️ Gym Tracker</div>
+    <nav class="nav">
+      <button type="button" class="nav-item" data-view="home">Home</button>
+      <button type="button" class="nav-item" data-view="log">Log Workout</button>
+      <button type="button" class="nav-item" data-view="check">Check a Lift</button>
+      <button type="button" class="nav-item" data-view="history">History</button>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="view" id="view-home" hidden>
+      <h2 class="greeting"><span class="greeting-text">Hey Nusy!</span> 👋</h2>
+      <section>
+        <h2>Current Bests</h2>
+        <div id="bests-message" class="message" hidden></div>
+        <div id="bests-result"></div>
+      </section>
+    </div>
+
+    <div class="view" id="view-log" hidden>
+    <section>
+      <h2>Log a workout</h2>
+      <form id="log-form">
+        <!-- Step 1: body part -->
+        <div class="field">
+          <label for="body_part">Body part</label>
+          <select id="body_part" required>
+            <option value="" disabled selected>Select a body part...</option>
+            <option>Back</option>
+            <option>Chest</option>
+            <option>Arms</option>
+            <option>Shoulders</option>
+            <option>Abs</option>
+            <option>Legs</option>
+          </select>
+        </div>
+
+        <!-- Step 2: existing or new movement -->
+        <div id="step-type" class="field" hidden>
+          <div class="checkboxes">
+            <label><input type="radio" name="movement_type" value="existing"> Existing movement</label>
+            <label><input type="radio" name="movement_type" value="new"> New movement</label>
+          </div>
+        </div>
+
+        <!-- Step 3a: pick an existing exercise -->
+        <fieldset id="step-existing" hidden disabled>
+          <div class="field">
+            <label for="exercise_select">Exercise</label>
+            <select id="exercise_select" required></select>
+          </div>
+          <div id="exercise-list-message" class="message" hidden></div>
+        </fieldset>
+
+        <!-- Step 3b: register a new exercise -->
+        <fieldset id="step-new" hidden disabled>
+          <div class="field">
+            <label for="new_exercise_name">Exercise name</label>
+            <input type="text" id="new_exercise_name" required>
+          </div>
+          <div class="field">
+            <label for="new_jump">Weight jump amount (lbs)</label>
+            <input type="number" id="new_jump" min="0.5" step="any" placeholder="e.g. 5" required>
+          </div>
+          <div class="checkboxes">
+            <label><input type="checkbox" id="new_each_side_loaded"> Each side loaded</label>
+          </div>
+        </fieldset>
+
+        <!-- Step 4: the set details, shared by both flows -->
+        <fieldset id="step-details" hidden disabled>
+          <div class="field">
+            <label for="weight_raw">Weight description</label>
+            <input type="text" id="weight_raw" placeholder="e.g. 4 plates and a 25" required>
+          </div>
+          <div class="field">
+            <label for="reps">Reps per set</label>
+            <input type="text" id="reps" placeholder="e.g. 5, 6" required>
+          </div>
+          <button type="submit" id="log-button">Log workout</button>
+        </fieldset>
+      </form>
+      <div id="log-message" class="message" hidden></div>
+    </section>
+    </div>
+
+    <div class="view" id="view-check" hidden>
+    <section>
+      <h2>Check a lift</h2>
+      <div class="field">
+        <label for="check_body_part">Body part</label>
+        <select id="check_body_part">
+          <option value="" disabled selected>Select a body part...</option>
+          <option>Back</option>
+          <option>Chest</option>
+          <option>Arms</option>
+          <option>Shoulders</option>
+          <option>Abs</option>
+          <option>Legs</option>
+        </select>
+      </div>
+      <div id="check-exercise-step" class="field" hidden>
+        <label for="check_exercise">Exercise</label>
+        <select id="check_exercise"></select>
+      </div>
+      <div id="check-message" class="message" hidden></div>
+      <div id="plateau-result" class="result" hidden></div>
+      <div id="history-result" class="table-wrap" hidden></div>
+    </section>
+    </div>
+
+    <div class="view" id="view-history" hidden>
+      <section>
+        <h2>History</h2>
+        <div class="tabs">
+          <button type="button" class="tab" data-history-mode="list">List</button>
+          <button type="button" class="tab" data-history-mode="grid">Grid</button>
+        </div>
+
+        <div id="history-list-panel">
+          <div id="all-logs-message" class="message" hidden></div>
+          <div id="all-logs-result" class="table-wrap" hidden></div>
+        </div>
+
+        <div id="history-grid-panel" hidden>
+          <div id="history-grid-message" class="message" hidden></div>
+          <div id="history-grid-result" class="table-wrap" hidden></div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    // --- Sidebar navigation: show one view, hide the rest ---
+    const navItems = document.querySelectorAll(".nav-item");
+
+    function showView(name) {
+      if (name === "home") loadBests();
+      if (name === "history") onHistoryShown();
+      document.querySelectorAll(".view").forEach(view => {
+        view.hidden = view.id !== `view-${name}`;
+      });
+      navItems.forEach(item => {
+        const active = item.dataset.view === name;
+        item.classList.toggle("active", active);
+        if (active) item.setAttribute("aria-current", "page");
+        else item.removeAttribute("aria-current");
+      });
+    }
+
+    navItems.forEach(item => item.addEventListener("click", () => showView(item.dataset.view)));
+
+    // FastAPI errors come back as {"detail": "..."} or, for validation errors, {"detail": [...]}
+    async function request(url, options) {
+      const resp = await fetch(url, options);
+      let data = null;
+      try { data = await resp.json(); } catch (e) { /* non-JSON body */ }
+      if (!resp.ok) {
+        let detail = data && data.detail;
+        if (Array.isArray(detail)) detail = detail.map(d => d.msg).join("; ");
+        throw new Error(detail || `Request failed (${resp.status})`);
+      }
+      return data;
+    }
+
+    function postJson(url, body) {
+      return request(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+
+    function showMessage(el, text, kind) {
+      el.textContent = text;
+      el.className = `message ${kind}`;
+      el.hidden = false;
+    }
+
+    function parseReps(text) {
+      const parts = text.split(",").map(s => s.trim()).filter(s => s !== "");
+      if (parts.length === 0 || !parts.every(p => /^\d+$/.test(p))) return null;
+      return parts.map(Number);
+    }
+
+    // Latest fetch number per exercise dropdown, so a slow, outdated response is ignored
+    const exerciseFetchIds = new WeakMap();
+
+    function cancelExerciseLoad(select) {
+      exerciseFetchIds.set(select, (exerciseFetchIds.get(select) || 0) + 1);
+    }
+
+    // Fill `select` with the exercises in `category` from GET /exercises. Returns the
+    // exercise list, or null if the fetch failed or was superseded by a newer one.
+    async function loadExerciseOptions(select, messageEl, category, emptyText) {
+      cancelExerciseLoad(select);
+      const fetchId = exerciseFetchIds.get(select);
+      const loading = new Option("Loading exercises...", "", true, true);
+      loading.disabled = true;
+      select.replaceChildren(loading);
+      messageEl.hidden = true;
+
+      try {
+        const data = await request("/exercises");
+        if (fetchId !== exerciseFetchIds.get(select)) return null;
+
+        const exercises = data[category] || [];
+        const placeholder = new Option("Select an exercise...", "", true, true);
+        placeholder.disabled = true;
+        select.replaceChildren(placeholder, ...exercises.map(ex => new Option(ex.name, ex.name)));
+
+        if (exercises.length === 0) showMessage(messageEl, emptyText, "info");
+        return exercises;
+      } catch (err) {
+        if (fetchId !== exerciseFetchIds.get(select)) return null;
+        select.replaceChildren();
+        showMessage(messageEl, `Couldn't load exercises: ${err.message}`, "error");
+        return null;
+      }
+    }
+
+    // --- Log a workout ---
+    const logForm = document.getElementById("log-form");
+    const logButton = document.getElementById("log-button");
+    const logMessage = document.getElementById("log-message");
+    const bodyPartSelect = document.getElementById("body_part");
+    const exerciseSelect = document.getElementById("exercise_select");
+    const exerciseListMessage = document.getElementById("exercise-list-message");
+    const stepType = document.getElementById("step-type");
+    const stepExisting = document.getElementById("step-existing");
+    const stepNew = document.getElementById("step-new");
+    const stepDetails = document.getElementById("step-details");
+
+    // Exercises for the selected body part, from GET /exercises, keyed by name
+    let exercisesByName = {};
+    // Name of a new movement already registered by this form, so a retry after a
+    // failed log doesn't hit the "already exists" error
+    let registeredName = null;
+
+    // Hidden steps are also disabled, so their required fields don't block submitting
+    function setStep(el, visible) {
+      el.hidden = !visible;
+      if (el.tagName === "FIELDSET") el.disabled = !visible;
+    }
+
+    function selectedMovementType() {
+      const checked = logForm.querySelector('input[name="movement_type"]:checked');
+      return checked ? checked.value : null;
+    }
+
+    function resetLogForm() {
+      logForm.reset();
+      exerciseSelect.replaceChildren();
+      exercisesByName = {};
+      cancelExerciseLoad(exerciseSelect);
+      registeredName = null;
+      exerciseListMessage.hidden = true;
+      [stepType, stepExisting, stepNew, stepDetails].forEach(el => setStep(el, false));
+    }
+
+    async function loadExercisesFor(category) {
+      const exercises = await loadExerciseOptions(
+        exerciseSelect,
+        exerciseListMessage,
+        category,
+        `💡 No ${category} exercises yet. Choose "New movement" to add one.`
+      );
+      if (exercises) exercisesByName = Object.fromEntries(exercises.map(ex => [ex.name, ex]));
+    }
+
+    // Show the right steps for the current body part / movement type / exercise choices
+    function updateLogSteps() {
+      const type = selectedMovementType();
+      setStep(stepType, bodyPartSelect.value !== "");
+      setStep(stepExisting, type === "existing");
+      setStep(stepNew, type === "new");
+      setStep(stepDetails, type === "new" || (type === "existing" && exerciseSelect.value !== ""));
+    }
+
+    bodyPartSelect.addEventListener("change", () => {
+      if (selectedMovementType() === "existing") loadExercisesFor(bodyPartSelect.value);
+      updateLogSteps();
+    });
+
+    logForm.querySelectorAll('input[name="movement_type"]').forEach(radio => {
+      radio.addEventListener("change", () => {
+        if (radio.value === "existing") loadExercisesFor(bodyPartSelect.value);
+        updateLogSteps();
+      });
+    });
+
+    exerciseSelect.addEventListener("change", updateLogSteps);
+
+    logForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const repsPerSet = parseReps(document.getElementById("reps").value);
+      if (!repsPerSet) {
+        showMessage(logMessage, "Reps per set must be whole numbers separated by commas, like 5, 6", "error");
+        return;
+      }
+
+      const type = selectedMovementType();
+      const bodyPart = bodyPartSelect.value;
+      let exercise;
+      if (type === "existing") {
+        exercise = exercisesByName[exerciseSelect.value];
+      } else {
+        exercise = {
+          name: document.getElementById("new_exercise_name").value.trim(),
+          category: bodyPart,
+          each_side_loaded: document.getElementById("new_each_side_loaded").checked,
+          jump: Number(document.getElementById("new_jump").value),
+        };
+      }
+
+      const weightRaw = document.getElementById("weight_raw").value.trim();
+      logButton.disabled = true;
+
+      try {
+        if (type === "new" && registeredName !== exercise.name) {
+          showMessage(logMessage, `Adding ${exercise.name} to your exercises...`, "info");
+          await postJson("/exercises", exercise);
+          registeredName = exercise.name;
+        }
+
+        showMessage(logMessage, "Parsing weight...", "info");
+        const parsed = await postJson("/parse-weight", { weight_text: weightRaw });
+
+        showMessage(logMessage, "Saving...", "info");
+        const logged = await postJson("/log", {
+          exercise_name: exercise.name,
+          category: bodyPart,
+          weight_raw: weightRaw,
+          weight_lbs: parsed.weight_lbs,
+          reps_per_set: repsPerSet,
+          each_side_loaded: exercise.each_side_loaded,
+        });
+
+        resetLogForm();
+        if (logged.is_new_max) {
+          showMessage(
+            logMessage,
+            `🎉 New PR! ${exercise.name}: ${parsed.weight_lbs} lbs — your best ever!`,
+            "pr"
+          );
+        } else if (logged.is_rep_pr) {
+          showMessage(
+            logMessage,
+            `💪 Rep PR! ${exercise.name}: ${Math.max(...repsPerSet)} reps at ${parsed.weight_lbs} lbs — most you've ever done at this weight!`,
+            "rep-pr"
+          );
+        } else {
+          showMessage(
+            logMessage,
+            `Logged ${exercise.name}: "${weightRaw}" = ${parsed.weight_lbs} lbs, reps ${repsPerSet.join(", ")}`,
+            "success"
+          );
+        }
+      } catch (err) {
+        const prefix = registeredName === exercise.name && type === "new"
+          ? `${exercise.name} was added to your exercises, but the workout wasn't logged: `
+          : "";
+        showMessage(logMessage, prefix + err.message, "error");
+      } finally {
+        logButton.disabled = false;
+      }
+    });
+
+    // --- Check a lift + history ---
+    const checkBodyPartSelect = document.getElementById("check_body_part");
+    const checkExerciseSelect = document.getElementById("check_exercise");
+    const checkExerciseStep = document.getElementById("check-exercise-step");
+    const checkMessage = document.getElementById("check-message");
+    const plateauResult = document.getElementById("plateau-result");
+    const historyResult = document.getElementById("history-result");
+
+    function renderPlateau(data) {
+      plateauResult.replaceChildren();
+
+      const badge = document.createElement("span");
+      if (data.plateaued === true) {
+        badge.className = "badge red";
+        badge.textContent = "Plateaued";
+      } else if (data.plateaued === false) {
+        badge.className = "badge green";
+        badge.textContent = "Not plateaued";
+      } else {
+        badge.className = "badge gray";
+        badge.textContent = "Not enough data";
+      }
+
+      const rec = document.createElement("p");
+      rec.className = "recommendation";
+      rec.textContent = data.recommendation;
+
+      const meta = document.createElement("p");
+      meta.className = "meta";
+      const bits = [];
+      if (data.current_weight_lbs !== undefined) bits.push(`Current weight: ${data.current_weight_lbs} lbs`);
+      if (data.sessions_analyzed !== undefined) bits.push(`Sessions analyzed: ${data.sessions_analyzed}`);
+      if (data.sessions_found !== undefined) bits.push(`Sessions logged: ${data.sessions_found} of ${data.sessions_needed}`);
+      if (data.auto_regulated_sessions_excluded) bits.push(`Down sessions excluded: ${data.auto_regulated_sessions_excluded}`);
+      meta.textContent = bits.join(" · ");
+
+      plateauResult.append(badge, rec, meta);
+      plateauResult.hidden = false;
+    }
+
+    function renderHistory(rows) {
+      historyResult.replaceChildren();
+      if (rows.length === 0) {
+        historyResult.hidden = true;
+        return;
+      }
+
+      const table = document.createElement("table");
+      table.innerHTML = "<thead><tr><th>Date</th><th>Weight</th><th>Reps per set</th></tr></thead>";
+      const tbody = document.createElement("tbody");
+
+      // Most recent first; the API returns oldest first
+      for (const row of [...rows].reverse()) {
+        const tr = document.createElement("tr");
+        for (const value of [row.log_date, `${row.weight_lbs} lbs (${row.weight_raw})`, row.reps_per_set.join(", ")]) {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      historyResult.appendChild(table);
+      historyResult.hidden = false;
+    }
+
+    // Bumped on every check so results for a previously selected exercise are ignored
+    let checkFetchId = 0;
+
+    function clearCheckResults() {
+      checkFetchId++;
+      checkMessage.hidden = true;
+      plateauResult.hidden = true;
+      historyResult.hidden = true;
+    }
+
+    checkBodyPartSelect.addEventListener("change", () => {
+      clearCheckResults();
+      checkExerciseStep.hidden = false;
+      const category = checkBodyPartSelect.value;
+      loadExerciseOptions(checkExerciseSelect, checkMessage, category, `No ${category} exercises yet.`);
+    });
+
+    checkExerciseSelect.addEventListener("change", async () => {
+      const name = checkExerciseSelect.value;
+      if (!name) return;
+      const encoded = encodeURIComponent(name);
+
+      clearCheckResults();
+      const fetchId = checkFetchId;
+
+      try {
+        const [plateau, history] = await Promise.all([
+          request(`/plateau-check/${encoded}`),
+          request(`/history/${encoded}`),
+        ]);
+        if (fetchId !== checkFetchId) return;
+        renderPlateau(plateau);
+        renderHistory(history);
+        if (history.length === 0) {
+          showMessage(checkMessage, `🆕 No sessions logged for ${name} yet.`, "info");
+        }
+      } catch (err) {
+        if (fetchId !== checkFetchId) return;
+        plateauResult.hidden = true;
+        historyResult.hidden = true;
+        showMessage(checkMessage, err.message, "error");
+      }
+    });
+
+    // --- Home: current bests ---
+    const CATEGORY_ORDER = ["Back", "Chest", "Arms", "Shoulders", "Abs", "Legs"];
+    const bestsMessage = document.getElementById("bests-message");
+    const bestsResult = document.getElementById("bests-result");
+
+    function renderBests(data) {
+      bestsResult.replaceChildren();
+      bestsMessage.hidden = true;
+
+      // Known categories in a fixed order, then anything else in the order the API returned it
+      const categories = [
+        ...CATEGORY_ORDER.filter(c => data[c]),
+        ...Object.keys(data).filter(c => !CATEGORY_ORDER.includes(c)),
+      ];
+
+      if (categories.length === 0) {
+        showMessage(bestsMessage, "📋 No workouts logged yet — head to Log Workout to get started!", "info");
+        return;
+      }
+
+      for (const category of categories) {
+        const block = document.createElement("div");
+        block.className = "bests-category";
+
+        const heading = document.createElement("h3");
+        heading.textContent = category;
+
+        const wrap = document.createElement("div");
+        wrap.className = "table-wrap";
+        const table = document.createElement("table");
+        table.innerHTML = "<thead><tr><th>Exercise</th><th>Best Weight</th><th>Date Hit</th></tr></thead>";
+        const tbody = document.createElement("tbody");
+
+        for (const row of data[category]) {
+          const tr = document.createElement("tr");
+          for (const value of [row.exercise_name, `${row.best_weight_lbs} lbs`, row.date_hit]) {
+            const td = document.createElement("td");
+            td.textContent = value;
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+
+        table.appendChild(tbody);
+        wrap.appendChild(table);
+        block.append(heading, wrap);
+        bestsResult.appendChild(block);
+      }
+    }
+
+    async function loadBests() {
+      try {
+        renderBests(await request("/current-bests"));
+      } catch (err) {
+        bestsResult.replaceChildren();
+        showMessage(bestsMessage, `Couldn't load current bests: ${err.message}`, "error");
+      }
+    }
+
+    // --- History: every logged workout ---
+    const allLogsMessage = document.getElementById("all-logs-message");
+    const allLogsResult = document.getElementById("all-logs-result");
+
+    function renderAllLogs(rows) {
+      allLogsResult.replaceChildren();
+      allLogsMessage.hidden = true;
+
+      if (rows.length === 0) {
+        allLogsResult.hidden = true;
+        showMessage(allLogsMessage, "📭 No workouts logged yet.", "info");
+        return;
+      }
+
+      const table = document.createElement("table");
+      table.innerHTML = "<thead><tr><th>Date</th><th>Exercise</th><th>Category</th><th>Weight</th><th>Reps per set</th></tr></thead>";
+      const tbody = document.createElement("tbody");
+
+      // Already most recent first from the API
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        for (const value of [
+          row.log_date,
+          row.exercise_name,
+          row.category,
+          `${row.weight_lbs} lbs (${row.weight_raw})`,
+          row.reps_per_set.join(", "),
+        ]) {
+          const td = document.createElement("td");
+          td.textContent = value;
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+
+      table.appendChild(tbody);
+      allLogsResult.appendChild(table);
+      allLogsResult.hidden = false;
+    }
+
+    // Data is fetched at most once per visit to the History view, then reused when toggling.
+    // Each visit bumps historyVisit, which clears the cache and discards any late responses.
+    const historyListPanel = document.getElementById("history-list-panel");
+    const historyGridPanel = document.getElementById("history-grid-panel");
+    const historyGridMessage = document.getElementById("history-grid-message");
+    const historyGridResult = document.getElementById("history-grid-result");
+    const historyTabs = document.querySelectorAll("[data-history-mode]");
+
+    let historyMode = "list";
+    let historyVisit = 0;
+    const historyCache = { list: null, grid: null };
+    // Visit number each mode was last requested in, so double clicks don't fetch twice
+    const historyRequested = { list: -1, grid: -1 };
+
+    function onHistoryShown() {
+      historyVisit++;
+      historyCache.list = null;
+      historyCache.grid = null;
+      showHistoryMode(historyMode);
+    }
+
+    function showHistoryMode(mode) {
+      historyMode = mode;
+      historyListPanel.hidden = mode !== "list";
+      historyGridPanel.hidden = mode !== "grid";
+      historyTabs.forEach(tab => {
+        const active = tab.dataset.historyMode === mode;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-pressed", String(active));
+      });
+
+      if (historyCache[mode] || historyRequested[mode] === historyVisit) return;
+      if (mode === "list") loadAllLogs();
+      else loadHistoryGrid();
+    }
+
+    historyTabs.forEach(tab => tab.addEventListener("click", () => showHistoryMode(tab.dataset.historyMode)));
+
+    async function loadAllLogs() {
+      const visit = historyVisit;
+      historyRequested.list = visit;
+      try {
+        const rows = await request("/all-logs");
+        if (visit !== historyVisit) return;
+        historyCache.list = rows;
+        renderAllLogs(rows);
+      } catch (err) {
+        if (visit !== historyVisit) return;
+        historyRequested.list = -1;
+        allLogsResult.hidden = true;
+        showMessage(allLogsMessage, `Couldn't load history: ${err.message}`, "error");
+      }
+    }
+
+    async function loadHistoryGrid() {
+      const visit = historyVisit;
+      historyRequested.grid = visit;
+      try {
+        const data = await request("/history-grid");
+        if (visit !== historyVisit) return;
+        historyCache.grid = data;
+        renderHistoryGrid(data);
+      } catch (err) {
+        if (visit !== historyVisit) return;
+        historyRequested.grid = -1;
+        historyGridResult.hidden = true;
+        showMessage(historyGridMessage, `Couldn't load history grid: ${err.message}`, "error");
+      }
+    }
+
+    // "2026-08-26" -> "08/26"
+    function formatMonthDay(isoDate) {
+      const [, month, day] = isoDate.split("-");
+      return `${month}/${day}`;
+    }
+
+    function renderHistoryGrid(data) {
+      historyGridResult.replaceChildren();
+      historyGridMessage.hidden = true;
+
+      const categories = [
+        ...CATEGORY_ORDER.filter(c => data[c]),
+        ...Object.keys(data).filter(c => !CATEGORY_ORDER.includes(c)),
+      ];
+
+      if (categories.length === 0) {
+        historyGridResult.hidden = true;
+        showMessage(historyGridMessage, "📭 No workouts logged yet.", "info");
+        return;
+      }
+
+      const table = document.createElement("table");
+      table.className = "history-grid";
+      const sessionHeaders = Array.from({ length: 10 }, (_, i) => `<th>Session ${i + 1}</th>`).join("");
+      table.innerHTML = `<thead><tr><th>Category</th><th>Exercise</th>${sessionHeaders}</tr></thead>`;
+      const tbody = document.createElement("tbody");
+
+      for (const category of categories) {
+        data[category].forEach((exercise, index) => {
+          const tr = document.createElement("tr");
+
+          // One shaded category cell spanning all of that category's exercise rows
+          if (index === 0) {
+            const categoryCell = document.createElement("td");
+            categoryCell.className = "category-cell";
+            categoryCell.rowSpan = data[category].length;
+            categoryCell.textContent = category;
+            tr.appendChild(categoryCell);
+          }
+
+          const nameCell = document.createElement("td");
+          nameCell.className = "exercise-name-cell";
+          nameCell.textContent = exercise.exercise_name;
+          tr.appendChild(nameCell);
+
+          for (let i = 0; i < 10; i++) {
+            const td = document.createElement("td");
+            const session = exercise.sessions[i];
+            if (session) {
+              td.textContent = `${session.weight_lbs} lbs · ${session.reps_per_set.join(",")} · ${formatMonthDay(session.log_date)}`;
+              td.title = `${session.weight_raw} on ${session.log_date}`;
+            } else {
+              td.textContent = "—";
+              td.className = "empty-cell";
+            }
+            tr.appendChild(td);
+          }
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      table.appendChild(tbody);
+      historyGridResult.appendChild(table);
+      historyGridResult.hidden = false;
+    }
+
+    showView("home");
+  </script>
+</body>
+</html>
