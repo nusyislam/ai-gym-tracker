@@ -1,16 +1,17 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Body, FastAPI, HTTPException
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 import sqlite3
 import json
 import os
 import re
 import requests
-from datetime import date
+from datetime import date, datetime
+from typing import Any
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -252,11 +253,16 @@ def history_grid():
             "log_date": row["log_date"],
         })
 
-    # Most recently trained exercise first within each category
+    # Most recently trained exercise first within each category (sessions[0] is still the
+    # most recent here, which this sort and the category fallback above rely on)
     ordered = sorted(exercises.items(), key=lambda item: item[1]["sessions"][0]["log_date"], reverse=True)
     grouped = {}
     for name, info in ordered:
-        grouped.setdefault(info["category"], []).append({"exercise_name": name, "sessions": info["sessions"]})
+        grouped.setdefault(info["category"], []).append({
+            "exercise_name": name,
+            # Oldest first in the response, so Session 1 is the oldest of the 10 and the last is the latest
+            "sessions": info["sessions"][::-1],
+        })
     return grouped
 
 
@@ -337,6 +343,123 @@ def current_bests():
             "date_hit": row["date_hit"],
         })
     return grouped
+
+
+@app.get("/export")
+def export_data():
+    conn = get_db()
+    exercises = conn.execute("SELECT * FROM exercises ORDER BY rowid").fetchall()
+    logs = conn.execute("SELECT * FROM workout_logs ORDER BY log_date, id").fetchall()
+    conn.close()
+
+    data = {
+        "exported_at": datetime.now().isoformat(timespec="seconds"),
+        "exercises": [
+            {
+                "name": row["name"],
+                "category": row["category"],
+                "each_side_loaded": bool(row["each_side_loaded"]),
+                "jump": format_lbs(row["jump"]),
+            }
+            for row in exercises
+        ],
+        "workout_logs": [
+            {key: value for key, value in log_row_to_dict(row).items() if key != "id"}
+            for row in logs
+        ],
+    }
+    filename = f"gym-tracker-export-{date.today()}.json"
+    # Indented so the downloaded file is readable, one field per line
+    return Response(
+        content=json.dumps(data, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class ImportedLog(WorkoutEntry):
+    # Unlike /log, an imported entry must carry its own date instead of defaulting to today
+    log_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class ImportData(BaseModel):
+    exercises: list[NewExercise]
+    workout_logs: list[ImportedLog]
+
+
+def describe_validation_error(error: ValidationError):
+    """Turn Pydantic errors into readable lines like 'workout_logs[3].weight_lbs: Field required'."""
+    lines = []
+    for err in error.errors()[:5]:
+        path = ""
+        for part in err["loc"]:
+            path += f"[{part}]" if isinstance(part, int) else (f".{part}" if path else str(part))
+        message = err["msg"]
+        if err["type"] == "string_pattern_mismatch" and err["loc"][-1] == "log_date":
+            message = "should be a date like 2026-09-23"
+        lines.append(f"{path}: {message}")
+    more = len(error.errors()) - len(lines)
+    return "; ".join(lines) + (f" (and {more} more)" if more > 0 else "")
+
+
+@app.post("/import")
+def import_data(payload: Any = Body(...)):
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Not a Gym Tracker export: expected a JSON object.")
+    missing = [key for key in ("exercises", "workout_logs") if key not in payload]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not a Gym Tracker export: missing {' and '.join(repr(k) for k in missing)}.",
+        )
+    # Validate everything before touching the database
+    try:
+        data = ImportData.model_validate(payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid import file: {describe_validation_error(e)}")
+
+    conn = get_db()
+    try:
+        # One transaction: commits only if every insert succeeds, otherwise rolls back entirely
+        with conn:
+            exercises_added = 0
+            for exercise in data.exercises:
+                # Existing exercises are left untouched, since their jump/each_side_loaded
+                # may have been corrected locally
+                cursor = conn.execute(
+                    "INSERT OR IGNORE INTO exercises (name, category, each_side_loaded, jump) VALUES (?, ?, ?, ?)",
+                    (exercise.name.strip(), exercise.category.strip(), int(exercise.each_side_loaded), exercise.jump),
+                )
+                exercises_added += cursor.rowcount
+
+            # Additive: logs are always inserted, never deduplicated against existing ones
+            conn.executemany(
+                """INSERT INTO workout_logs
+                   (exercise_name, category, weight_raw, weight_lbs, reps_per_set, each_side_loaded, log_date)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    (
+                        log.exercise_name,
+                        log.category,
+                        log.weight_raw,
+                        log.weight_lbs,
+                        json.dumps(log.reps_per_set),
+                        int(log.each_side_loaded),
+                        log.log_date,
+                    )
+                    for log in data.workout_logs
+                ],
+            )
+    except sqlite3.Error as e:
+        raise HTTPException(status_code=500, detail=f"Import failed and was rolled back, nothing was changed: {e}")
+    finally:
+        conn.close()
+
+    return {
+        "exercises_added": exercises_added,
+        "exercises_skipped": len(data.exercises) - exercises_added,
+        "workout_logs_added": len(data.workout_logs),
+    }
 
 
 PLATEAU_WINDOW = 8

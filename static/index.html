@@ -141,6 +141,54 @@
         margin-left: 0;
         padding: 24px 16px 48px;
       }
+
+      /* The page never scrolls sideways; wide tables scroll inside their .table-wrap.
+         On body (with html left alone) this applies to the viewport, so it doesn't create a
+         new scroll container that would change how the page scrolls. */
+      body { overflow-x: hidden; }
+
+      /* History List and Current Bests: each row becomes a card, with the column name from
+         data-label beside each value. The History Grid stays a scrollable table. */
+      #all-logs-result table,
+      #all-logs-result tbody,
+      .bests-category table,
+      .bests-category tbody {
+        display: block;
+        border: none;
+      }
+
+      #all-logs-result thead,
+      .bests-category thead {
+        display: none;
+      }
+
+      #all-logs-result tbody tr,
+      .bests-category tbody tr {
+        display: block;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin-bottom: 12px;
+        padding: 10px 12px;
+      }
+
+      #all-logs-result td,
+      .bests-category td {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 6px 0;
+        border-bottom: none;
+        text-align: right;
+      }
+
+      #all-logs-result td::before,
+      .bests-category td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--muted);
+        text-align: left;
+        flex-shrink: 0;
+      }
     }
 
     section {
@@ -212,11 +260,14 @@
     .history-grid th,
     .history-grid td { white-space: nowrap; }
 
-    /* Long exercise names wrap at word boundaries. Browsers largely ignore max-width on
-       table cells, so width sets the column's target size alongside it. */
+    /* Long exercise names wrap at word boundaries. The grid is wider than its container, and
+       then browsers shrink columns to their longest word regardless of width, so min-width is
+       what actually holds the column at this size. */
     .history-grid .exercise-name-cell {
-      width: 160px;
-      max-width: 160px;
+      --grid-name-width: 160px;
+      width: var(--grid-name-width);
+      min-width: var(--grid-name-width);
+      max-width: var(--grid-name-width);
       white-space: normal;
     }
 
@@ -224,6 +275,63 @@
       background: var(--bg);
       font-weight: 700;
       vertical-align: top;
+    }
+
+    /* Category and Exercise stay pinned while the Session columns scroll underneath.
+       Body cells are targeted by class, not nth-child: the Category cell spans several rows,
+       so in most rows the exercise name is the first cell and Session 1 is the second.
+       The header row has no spanning cells, so nth-child is safe there. */
+    .history-grid {
+      --grid-category-width: 104px;
+    }
+
+    .history-grid thead th:nth-child(1),
+    .history-grid thead th:nth-child(2),
+    .history-grid td.category-cell,
+    .history-grid td.exercise-name-cell {
+      position: sticky;
+      z-index: 1;
+      background: var(--card);
+    }
+
+    /* Fixed width so the Exercise column's offset below always matches it exactly */
+    .history-grid thead th:nth-child(1),
+    .history-grid td.category-cell {
+      left: 0;
+      width: var(--grid-category-width);
+      min-width: var(--grid-category-width);
+      max-width: var(--grid-category-width);
+    }
+
+    /* A thin divider on the pinned Exercise column so scrolled cells don't blend into it */
+    .history-grid thead th:nth-child(2),
+    .history-grid td.exercise-name-cell {
+      left: var(--grid-category-width);
+      box-shadow: inset -1px 0 0 var(--border);
+    }
+
+    /* Keeps its shaded look while pinned (more specific than the background rule above) */
+    .history-grid td.category-cell { background: var(--bg); }
+
+    /* On phones, pinning both columns would leave less than one Session column visible, so only
+       Exercise stays pinned (at the left edge) and Category scrolls away with the sessions.
+       This block must come after the grid rules above to override them. */
+    @media (max-width: 700px) {
+      .history-grid { --grid-category-width: 84px; font-size: 0.85rem; }
+      .history-grid th,
+      .history-grid td { padding: 6px 8px; }
+      .history-grid .exercise-name-cell { --grid-name-width: 112px; }
+
+      .history-grid thead th:nth-child(1),
+      .history-grid td.category-cell {
+        position: static;
+      }
+
+      .history-grid thead th:nth-child(2),
+      .history-grid td.exercise-name-cell {
+        left: 0;
+        z-index: 2;
+      }
     }
 
     .history-grid .empty-cell {
@@ -322,6 +430,28 @@
       display: flex;
       gap: 10px;
     }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    /* A section title on the left with actions on the right; wraps so the buttons drop
+       below the title when there isn't room for both on one line */
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .section-header h2 { margin: 0; }
+
+    /* The feedback message sits between the header row and the tabs */
+    .section-header + .message { margin: 0 0 16px; }
 
     .row input { flex: 1; }
 
@@ -546,7 +676,16 @@
 
     <div class="view" id="view-history" hidden>
       <section>
-        <h2>History</h2>
+        <div class="section-header">
+          <h2>History</h2>
+          <div class="button-row">
+            <button type="button" id="export-button">Export Data</button>
+            <button type="button" id="import-button">Import Data</button>
+            <input type="file" id="import-file" accept="application/json,.json" hidden>
+          </div>
+        </div>
+        <div id="transfer-message" class="message" hidden></div>
+
         <div class="tabs">
           <button type="button" class="tab" data-history-mode="list">List</button>
           <button type="button" class="tab" data-history-mode="grid">Grid</button>
@@ -948,8 +1087,14 @@
 
         for (const row of data[category]) {
           const tr = document.createElement("tr");
-          for (const value of [row.exercise_name, `${row.best_weight_lbs} lbs`, row.date_hit]) {
+          // data-label is the column name shown beside each value in the mobile card layout
+          for (const [label, value] of [
+            ["Exercise", row.exercise_name],
+            ["Best Weight", `${row.best_weight_lbs} lbs`],
+            ["Date Hit", row.date_hit],
+          ]) {
             const td = document.createElement("td");
+            td.dataset.label = label;
             td.textContent = value;
             tr.appendChild(td);
           }
@@ -993,14 +1138,16 @@
       // Already most recent first from the API
       for (const row of rows) {
         const tr = document.createElement("tr");
-        for (const value of [
-          row.log_date,
-          row.exercise_name,
-          row.category,
-          `${row.weight_lbs} lbs (${row.weight_raw})`,
-          row.reps_per_set.join(", "),
+        // data-label is the column name shown beside each value in the mobile card layout
+        for (const [label, value] of [
+          ["Date", row.log_date],
+          ["Exercise", row.exercise_name],
+          ["Category", row.category],
+          ["Weight", `${row.weight_lbs} lbs (${row.weight_raw})`],
+          ["Reps per set", row.reps_per_set.join(", ")],
         ]) {
           const td = document.createElement("td");
+          td.dataset.label = label;
           td.textContent = value;
           tr.appendChild(td);
         }
@@ -1148,6 +1295,69 @@
       historyGridResult.appendChild(table);
       historyGridResult.hidden = false;
     }
+
+    // --- History: export / import ---
+    const transferMessage = document.getElementById("transfer-message");
+    const importButton = document.getElementById("import-button");
+    const importFile = document.getElementById("import-file");
+
+    // A link click lets the browser follow /export's Content-Disposition and save the file
+    document.getElementById("export-button").addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.href = "/export";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      showMessage(transferMessage, "Export started. Check your downloads.", "info");
+    });
+
+    importButton.addEventListener("click", () => importFile.click());
+
+    function readFileAsText(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error(`Couldn't read ${file.name}.`));
+        reader.readAsText(file);
+      });
+    }
+
+    function plural(count, word) {
+      return `${count} ${word}${count === 1 ? "" : "s"}`;
+    }
+
+    importFile.addEventListener("change", async () => {
+      const file = importFile.files[0];
+      // Clear it so choosing the same file again still fires "change"
+      importFile.value = "";
+      if (!file) return;
+
+      importButton.disabled = true;
+      showMessage(transferMessage, `Importing ${file.name}...`, "info");
+
+      try {
+        let data;
+        try {
+          data = JSON.parse(await readFileAsText(file));
+        } catch (err) {
+          throw err instanceof SyntaxError ? new Error(`${file.name} isn't valid JSON.`) : err;
+        }
+
+        const summary = await postJson("/import", data);
+        let text = `Imported ${plural(summary.exercises_added, "exercise")} and ${plural(summary.workout_logs_added, "workout log")}`;
+        if (summary.exercises_skipped) {
+          text += ` (${plural(summary.exercises_skipped, "exercise")} already existed and ${summary.exercises_skipped === 1 ? "was" : "were"} left as is)`;
+        }
+        showMessage(transferMessage, text + ".", "success");
+
+        // Show the imported workouts in the List/Grid above
+        onHistoryShown();
+      } catch (err) {
+        showMessage(transferMessage, err.message, "error");
+      } finally {
+        importButton.disabled = false;
+      }
+    });
 
     showView("home");
   </script>
