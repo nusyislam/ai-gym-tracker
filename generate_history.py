@@ -5,7 +5,7 @@ Usage (server must be running for a real run):
     python generate_history.py --dry-run  # print the generated sessions, log nothing
 
 Exercises that already have logged sessions are skipped, so running this twice
-(or after seed_data.py) doesn't create duplicates.
+doesn't create duplicates.
 """
 import random
 import sys
@@ -83,7 +83,7 @@ GENERATED = [
     ex("Back Supported Leg Raises", "Abs", 5, False, 25, (6, 7), [6, 7]),
     ex("Atlantis Pivot Press", "Legs", 10, True, 270, (5, 6), [5, 6], "6 plates"),
     ex("Hammer Strength Plate-Loaded Super Horizontal Calf Raise", "Legs", 10, True, 135, (5, 6), [5, 6], "3 plates"),
-    ex("Precor Glutebuilder Hip Thrust Elite", "Legs", 10, True, 205, (5, 6), [5, 6], "4 plates and a 25"),
+    ex("Glutebuilder Hip Thrust Elite", "Legs", 10, True, 205, (5, 6), [5, 6], "4 plates and a 25"),
     ex("Hammer Strength MTS Kneeling Leg Curl", "Legs", 5, True, 75, (5, 6), [5, 6]),
     ex("Atlantis Leg Extensions", "Legs", 5, False, 205, (5, 6), [5, 6]),
     ex("Glutebuilder Pendulum Kickbacks", "Legs", 10, False, 180, (5, 6), [6], "4 plates"),

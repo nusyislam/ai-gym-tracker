@@ -859,6 +859,9 @@
     logForm.querySelectorAll('input[name="movement_type"]').forEach(radio => {
       radio.addEventListener("change", () => {
         if (radio.value === "existing") loadExercisesFor(bodyPartSelect.value);
+        document.getElementById("weight_raw").value = "";
+        document.getElementById("reps").value = "";
+        logMessage.hidden = true;
         updateLogSteps();
       });
     });

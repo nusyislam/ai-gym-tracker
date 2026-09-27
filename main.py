@@ -72,7 +72,7 @@ EXERCISES = {
         {"name": "BB RDLs", "each_side_loaded": True, "jump": 10},
         {"name": "Atlantis Pivot Press", "each_side_loaded": True, "jump": 10},
         {"name": "Hammer Strength Plate-Loaded Super Horizontal Calf Raise", "each_side_loaded": True, "jump": 10},
-        {"name": "Precor Glutebuilder Hip Thrust Elite", "each_side_loaded": True, "jump": 10},
+        {"name": "Glutebuilder Hip Thrust Elite", "each_side_loaded": True, "jump": 10},
         {"name": "Hammer Strength MTS Kneeling Leg Curl", "each_side_loaded": True, "jump": 5},
         {"name": "Atlantis Leg Extensions", "each_side_loaded": False, "jump": 5},
         {"name": "Glutebuilder Pendulum Kickbacks", "each_side_loaded": False, "jump": 10},
